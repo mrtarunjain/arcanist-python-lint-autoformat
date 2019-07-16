@@ -25,29 +25,79 @@ final class BlackLinter extends ArcanistExternalLinter {
     return array("--diff");
   }
   protected function parseLinterOutput($path, $err, $stdout, $stderr) {
-    $root = $this->getProjectRoot();
-    $path = Filesystem::resolvePath($path, $root);
-    $orig = file_get_contents($path);
-
-    // TODO: patch fails when the patch has no changes. Check if the diff was empty
-    //       and apply in that case.
-    exec("echo ".escapeshellarg($stdout)." | patch ".$path." -r - -o - ", $dest, $status);
-    $out = implode("\n", $dest);
-
-    if (!strcmp(implode("\n", $dest), $orig)) {
-      return array();
+    if (empty($stdout) || substr($stdout, 0, 3) != '---') {
+        return array();
     }
-
-    $message = id(new ArcanistLintMessage())
+    $messages = array();
+    $parser = new ArcanistDiffParser();
+    $changes = $parser->parseDiff($stdout);
+    foreach ($changes as $change) {
+      foreach ($change->getHunks() as $hunk) {
+        $repl = array();
+        $orig = array();
+        $lines = phutil_split_lines($hunk->getCorpus(), false);
+        foreach ($lines as $line) {
+          if (empty($line)) {
+            continue;
+          }
+          $char = $line[0];
+          $rest = substr($line, 1);
+          switch ($char) {
+            case '-':
+              $orig[] = $rest;
+              break;
+            case '+':
+              $repl[] = $rest;
+              break;
+            case '~':
+              break;
+            case ' ':
+              $orig[] = $rest;
+              $repl[] = $rest;
+              break;
+          }
+        }
+        $messages[] = id(new ArcanistLintMessage())
+          ->setPath($path)
+          ->setLine($hunk->getOldOffset())
+          ->setChar(1)
+          ->setCode($this->getLinterName())
+          ->setSeverity(ArcanistLintSeverity::SEVERITY_AUTOFIX)
+          ->setName('format')
+          ->setOriginalText(implode("\n", $orig))
+          ->setReplacementText(implode("\n", $repl))
+          ->setBypassChangedLineFiltering(true);
+      }
+    }
+    return $messages;
+  }
+  protected function parseLinterError($path, $stdout, $stderr, $err) {
+    $matches = null;
+    preg_match(
+      '/error: cannot format -: Cannot parse: (?P<line>\d+):(?P<column>\d+): (?P<message>.*)/',
+      $stderr,
+      $matches);
+    if ($matches) {
+      $line = $matches['line'];
+      $col = $matches['column'] + 1;
+      $message = $matches['message'];
+      $name = 'Cannot parse';
+      $severity = ArcanistLintSeverity::SEVERITY_ERROR;
+    } else {
+      $line = 1;
+      $col = 1;
+      $message = $stderr;
+      $name = sprintf('Command execution failed (%d)', $err);
+      $severity = ArcanistLintSeverity::SEVERITY_ADVICE;
+    }
+    return id(new ArcanistLintMessage())
       ->setPath($path)
-      ->setLine(1)
-      ->setChar(1)
-      ->setGranularity(ArcanistLinter::GRANULARITY_FILE)
-      ->setSeverity(ArcanistLintSeverity::SEVERITY_AUTOFIX)
-      ->setName('Code format suggestions')
-      ->setDescription("Code format changes suggested. Recommendation is to either accept the changes or mark as ignored for future lints.")
-      ->setOriginalText($orig)
-      ->setReplacementText($out);
-    return array($message);
+      ->setLine($line)
+      ->setChar($col)
+      ->setCode($this->getLinterName())
+      ->setSeverity($severity)
+      ->setName($name)
+      ->setDescription($message)
+      ->setBypassChangedLineFiltering(true);
   }
 }
