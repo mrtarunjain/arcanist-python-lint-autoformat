@@ -22,7 +22,7 @@ final class BlackLinter extends ArcanistExternalLinter {
     return pht('Make sure black is in directory specified by $PATH');
   }
   protected function getMandatoryFlags() {
-    return array("--diff");
+    return array("--diff", "-S", "-t", "py35");
   }
   protected function parseLinterOutput($path, $err, $stdout, $stderr) {
     if (empty($stdout) || substr($stdout, 0, 3) != '---') {
