@@ -1,0 +1,9 @@
+{
+  "linters": {
+    "default": {
+      "type": "black",
+      "include": "(\\.py$)",
+      "flags": []
+    }
+  }
+}

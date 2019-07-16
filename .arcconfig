@@ -1,0 +1,4 @@
+{
+    "phabricator.uri" : "<your uri>",
+    "load": ["../arcanist-python-lint-autoformat"]
+}
